@@ -1,86 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase";
-import type { User } from "@supabase/supabase-js";
 import type { Profile } from "@/lib/types";
-import { UsernameModal } from "./UsernameModal";
+import { log } from "@/lib/logger";
+import { useAuth } from "./AuthProvider";
+import { UsernameModal } from "@/app/components/UsernameModal";
 
 export function AuthButton() {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [showUsernameModal, setShowUsernameModal] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, profile, loading, setProfile } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const showUsernameModal = !!user && !profile;
 
   const supabase = createClient();
 
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-        
-        if (authError) {
-          console.error("AuthButton: getUser error:", authError);
-        }
-        
-        setUser(user);
-
-        if (user) {
-          const { data: profile, error: profileError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", user.id)
-            .maybeSingle();
-
-          if (profileError) {
-            console.error("AuthButton: profile fetch error:", profileError);
-          }
-
-          if (profile) {
-            setProfile(profile);
-          } else {
-            // First login — need to pick a username
-            setShowUsernameModal(true);
-          }
-        }
-      } catch (e) {
-        console.error("AuthButton: unexpected error:", e);
-      }
-      setLoading(false);
-    };
-
-    getUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .maybeSingle();
-        if (profile) {
-          setProfile(profile);
-          setShowUsernameModal(false);
-        } else {
-          setShowUsernameModal(true);
-        }
-      } else {
-        setProfile(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const handleSignIn = async () => {
+    log.info("auth.ui.sign_in_click", {
+      path: window.location.pathname,
+    });
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -89,17 +26,12 @@ export function AuthButton() {
     });
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setMenuOpen(false);
-    window.location.reload();
+  const handleSignOut = () => {
+    window.location.href = "/api/auth/signout";
   };
 
   const handleUsernameCreated = (newProfile: Profile) => {
     setProfile(newProfile);
-    setShowUsernameModal(false);
   };
 
   if (loading) {
@@ -132,7 +64,7 @@ export function AuthButton() {
             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
           />
         </svg>
-        Sign In
+        Sign In to Slop
       </button>
     );
   }
@@ -144,7 +76,7 @@ export function AuthButton() {
           onClick={() => setMenuOpen(!menuOpen)}
           className="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer"
         >
-          <div className="w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center text-xs font-bold">
+          <div className="w-6 h-6 rounded-full bg-yellow-400 text-zinc-950 flex items-center justify-center text-xs font-bold">
             {(profile?.username?.[0] ?? "?").toUpperCase()}
           </div>
           <span className="text-sm font-medium text-zinc-200 max-w-[120px] truncate">

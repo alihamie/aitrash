@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { createRequestId, log } from "@/lib/logger";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { SlopMeter } from "../components/SlopMeter";
 import { getSlopColor } from "@/lib/types";
+import { useAuth } from "../components/AuthProvider";
 
 const IS_LOCALHOST =
   typeof window !== "undefined" &&
@@ -16,17 +18,38 @@ const TURNSTILE_SITE_KEY =
   process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 const LOADING_MSGS = [
-  "Analyzing slop levels...",
+  "Analyzing slop levels... oh no.",
   "Calibrating the Slop-o-Meter...",
-  "Counting buzzwords...",
-  "Measuring filler phrases...",
-  "Detecting AI fingerprints...",
-  "The judge is deliberating...",
-  "Almost done roasting...",
+  "Counting buzzwords... there are so many.",
+  "Measuring filler phrases... we're running out of units.",
+  "Detecting AI fingerprints... found seventeen.",
+  "The judge is weeping.",
+  "Almost done roasting... this is bad.",
+  "Contacting hazmat team...",
+  "Preparing roast. This may sting.",
 ];
 
 const MAX_CHARS = 5000;
 const MAX_POSTS_PER_DAY = 3;
+
+type SourceMode = "text" | "tweet" | "reddit";
+
+const SOURCE_MODES: { id: SourceMode; label: string; icon: string }[] = [
+  { id: "text", label: "Text", icon: "📝" },
+  { id: "tweet", label: "Tweet", icon: "🐦" },
+  { id: "reddit", label: "Reddit", icon: "🤖" },
+];
+
+const PLACEHOLDERS: Record<SourceMode, string> = {
+  text: "Paste your AI-generated masterpiece here. The sloppier the better. We don't judge. (We absolutely judge.) 🗑️",
+  tweet: "Fetch a tweet above, or paste tweet text directly here.",
+  reddit: "Fetch a Reddit post above, or paste text directly here.",
+};
+
+const URL_PLACEHOLDERS: Record<string, string> = {
+  tweet: "https://x.com/user/status/123...",
+  reddit: "https://www.reddit.com/r/sub/comments/abc/title/",
+};
 
 interface SubmitResult {
   slop_score: number;
@@ -38,48 +61,71 @@ interface SubmitResult {
 
 export default function SubmitPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<SourceMode>("text");
   const [content, setContent] = useState("");
+  const [title, setTitle] = useState("");
+  const [importUrl, setImportUrl] = useState("");
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState(LOADING_MSGS[0]);
   const [error, setError] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(
     IS_LOCALHOST ? "localhost-bypass" : null
   );
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
+  const { user, loading: authLoading, authError } = useAuth();
 
   const supabase = createClient();
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
-        if (error) {
-          console.error("Auth check error:", error);
-          setAuthError(error.message);
-        }
-        setIsAuthenticated(!!user);
-      } catch (e) {
-        console.error("Auth check exception:", e);
-        setAuthError("Failed to check auth status");
-        setIsAuthenticated(false);
-      }
-    };
-    checkAuth();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const isAuthenticated = !!user;
 
   const handleSignIn = () => {
+    log.info("submit.auth_required_sign_in", {
+      path: window.location.pathname,
+    });
     supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=/submit`,
       },
     });
+  };
+
+  const handleModeChange = (newMode: SourceMode) => {
+    setMode(newMode);
+    setImportUrl("");
+    setImportError("");
+    setContent("");
+  };
+
+  const handleFetch = async () => {
+    if (!importUrl.trim()) return;
+    setImportLoading(true);
+    setImportError("");
+    const apiMap: Record<string, string> = {
+      tweet: "/api/extract-tweet",
+      reddit: "/api/extract-reddit",
+    };
+    const endpoint = apiMap[mode];
+    if (!endpoint) return;
+
+    try {
+      const res = await fetch(`${endpoint}?url=${encodeURIComponent(importUrl.trim())}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error ?? "Failed to fetch content.");
+      } else {
+        setContent(data.text ?? "");
+        if (!title.trim()) {
+          if (data.author) setTitle(mode === "tweet" ? `Tweet by ${data.author}` : `Post by ${data.author}`);
+          else if (data.title) setTitle(data.title);
+        }
+      }
+    } catch {
+      setImportError("Failed to fetch content.");
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,6 +140,14 @@ export default function SubmitPage() {
     setError("");
     setResult(null);
 
+    const requestId = createRequestId("submit");
+    log.info("submit.client.start", {
+      requestId,
+      contentLength: content.trim().length,
+      hasTurnstileToken: !!turnstileToken,
+      isLocalhost: IS_LOCALHOST,
+    });
+
     let msgIdx = 0;
     const interval = setInterval(() => {
       msgIdx = (msgIdx + 1) % LOADING_MSGS.length;
@@ -103,22 +157,35 @@ export default function SubmitPage() {
     try {
       const res = await fetch("/api/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-id": requestId,
+        },
         body: JSON.stringify({
           content: content.trim(),
+          title: title.trim() || undefined,
           turnstileToken,
         }),
       });
       const data = await res.json();
+      log.info("submit.client.response", {
+        requestId,
+        status: res.status,
+        ok: res.ok,
+        code: data?.code,
+      });
       if (!res.ok) throw new Error(data.error ?? "Something went wrong.");
 
       setResult(data as SubmitResult);
 
-      // Redirect to post after showing result for 3 seconds
       setTimeout(() => {
         router.push(`/post/${data.id}`);
       }, 3000);
     } catch (err: unknown) {
+      log.error("submit.client.failed", {
+        requestId,
+        message: err instanceof Error ? err.message : "Unknown submit error",
+      });
       setError(err instanceof Error ? err.message : "Failed to submit.");
       setLoading(false);
     } finally {
@@ -126,8 +193,7 @@ export default function SubmitPage() {
     }
   };
 
-  // Loading auth state
-  if (isAuthenticated === null) {
+  if (authLoading) {
     return (
       <div className="max-w-2xl mx-auto text-center py-20">
         <div className="animate-pulse text-4xl">🗑️</div>
@@ -135,7 +201,6 @@ export default function SubmitPage() {
     );
   }
 
-  // Not authenticated
   if (!isAuthenticated) {
     return (
       <div className="max-w-2xl mx-auto text-center py-16">
@@ -144,6 +209,11 @@ export default function SubmitPage() {
         <p className="text-zinc-400 text-sm mb-6">
           You need an account to submit AI-generated garbage.
         </p>
+        {authError && (
+          <p className="text-xs text-red-400 mb-4">
+            Auth status issue: {authError}
+          </p>
+        )}
         <button
           onClick={handleSignIn}
           className="inline-flex items-center gap-2 bg-white text-zinc-900 font-bold px-6 py-3 rounded-xl hover:bg-zinc-200 transition-colors cursor-pointer"
@@ -172,7 +242,6 @@ export default function SubmitPage() {
     );
   }
 
-  // Show result after successful submission
   if (result) {
     const slopColor = getSlopColor(result.slop_score);
     return (
@@ -185,8 +254,8 @@ export default function SubmitPage() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
           <SlopMeter score={result.slop_score} size="lg" />
 
-          <div className="mt-6 bg-purple-950/30 border border-purple-800/50 rounded-xl p-4">
-            <p className="text-xs font-bold uppercase tracking-widest text-purple-400 mb-1">
+          <div className="mt-6 bg-zinc-800/60 border border-yellow-400/20 rounded-xl p-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-yellow-400 mb-1">
               🤖 AI Slop Judge
             </p>
             <p className={`${slopColor} font-semibold italic text-lg`}>
@@ -205,21 +274,91 @@ export default function SubmitPage() {
     );
   }
 
+  const showUrlInput = mode === "tweet" || mode === "reddit";
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-black tracking-tighter mb-2">
-          Dump Your <span className="text-purple-400">Slop</span> 🗑️
+        <h1 className="text-3xl font-black tracking-tighter mb-2 uppercase">
+          <span className="text-yellow-400">Slop</span> Dump 🗑️
         </h1>
         <p className="text-zinc-400 text-sm">
-          Paste AI-generated text. The Slop-o-Meter awaits.
+          Paste your slop here. Don&apos;t be shy. We&apos;ve seen worse.
         </p>
         <p className="text-zinc-600 text-xs mt-1">
-          {MAX_POSTS_PER_DAY} dumps per day. Make them count.
+          {MAX_POSTS_PER_DAY} dumps per day. Choose disgrace wisely.
         </p>
       </div>
 
+      {/* Source selector */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {SOURCE_MODES.map(({ id, label, icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => handleModeChange(id)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors border cursor-pointer ${
+              mode === id
+                ? "bg-yellow-400 text-zinc-950 border-yellow-400"
+                : "bg-zinc-900 text-zinc-400 border-zinc-700 hover:border-zinc-500"
+            }`}
+          >
+            <span>{icon}</span>
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Title */}
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
+            Title <span className="text-zinc-600 normal-case font-normal tracking-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Give your slop a name..."
+            maxLength={100}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-200 placeholder-zinc-600 text-sm focus:outline-none focus:border-yellow-400/50 transition-colors"
+          />
+          <div className="flex justify-end mt-1">
+            <p className={`text-xs ${title.length > 90 ? "text-orange-400" : "text-zinc-600"}`}>
+              {title.length} / 100
+            </p>
+          </div>
+        </div>
+
+        {/* URL import — tweet / reddit / url modes only */}
+        {showUrlInput && (
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
+              {mode === "tweet" ? "Tweet URL" : mode === "reddit" ? "Reddit Post URL" : "Page URL"}
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+                placeholder={URL_PLACEHOLDERS[mode]}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-200 placeholder-zinc-600 text-sm focus:outline-none focus:border-yellow-400/50 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={handleFetch}
+                disabled={importLoading || !importUrl.trim()}
+                className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-300 font-medium text-sm rounded-xl transition-colors border border-zinc-700 cursor-pointer whitespace-nowrap"
+              >
+                {importLoading ? "Fetching..." : "Fetch"}
+              </button>
+            </div>
+            {importError && (
+              <p className="text-xs text-red-400 mt-1">{importError}</p>
+            )}
+          </div>
+        )}
+
         {/* Textarea */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
@@ -228,15 +367,15 @@ export default function SubmitPage() {
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Paste your AI-generated masterpiece here... The sloppier the better! 🗑️"
+            placeholder={PLACEHOLDERS[mode]}
             rows={10}
             required
             maxLength={MAX_CHARS}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-200 placeholder-zinc-600 text-sm focus:outline-none focus:border-purple-500/50 resize-none transition-colors"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-200 placeholder-zinc-600 text-sm focus:outline-none focus:border-yellow-400/50 resize-none transition-colors"
           />
           <div className="flex justify-between mt-1">
             <p className="text-xs text-zinc-600">
-              Pro tip: More buzzwords = more slop points
+              Pro tip: leverage synergies for maximum slop points
             </p>
             <p
               className={`text-xs ${content.length > MAX_CHARS * 0.9 ? "text-orange-400" : "text-zinc-600"}`}
@@ -246,7 +385,7 @@ export default function SubmitPage() {
           </div>
         </div>
 
-        {/* Turnstile — skip on localhost for dev */}
+        {/* Turnstile */}
         {IS_LOCALHOST ? (
           <p className="text-xs text-zinc-500 text-center">
             🛠️ Turnstile bypassed on localhost
@@ -271,7 +410,7 @@ export default function SubmitPage() {
         <button
           type="submit"
           disabled={loading || !content.trim() || !turnstileToken}
-          className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-lg py-4 rounded-xl transition-colors cursor-pointer"
+          className="w-full bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 font-black text-lg py-4 rounded-xl transition-colors cursor-pointer"
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
@@ -279,7 +418,7 @@ export default function SubmitPage() {
               {loadingMsg}
             </span>
           ) : (
-            "Dump My Slop 🗑️"
+            "Dump Slop 🗑️"
           )}
         </button>
       </form>

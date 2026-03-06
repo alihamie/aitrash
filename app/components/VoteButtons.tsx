@@ -114,7 +114,7 @@ export function VoteButtons({
         } ${loading ? "opacity-50" : ""}`}
       >
         <span className="text-base">🗑️</span>
-        <span>SLOP!</span>
+        <span>PURE SLOP</span>
         <span
           className={`ml-1 ${userVote === "slop" ? "text-green-300" : "text-zinc-500"}`}
         >
@@ -135,8 +135,8 @@ export function VoteButtons({
             : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-orange-400"
         } ${loading ? "opacity-50" : ""}`}
       >
-        <span className="text-base">🧑‍🍳</span>
-        <span>Too Clean</span>
+        <span className="text-base">👨‍🍳</span>
+        <span>NOT SLOPPY ENOUGH</span>
         <span
           className={`ml-1 ${userVote === "clean" ? "text-orange-300" : "text-zinc-500"}`}
         >

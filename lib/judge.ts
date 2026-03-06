@@ -1,4 +1,5 @@
 import { JudgeResult } from "./types";
+import { log } from "./logger";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -44,13 +45,25 @@ ROAST EXAMPLES:
 - Mid score: "Getting there — I can smell the slop, but you need more 'leveraging synergies' to reach the promised land."`;
 
 async function callGemini(parts: object[]): Promise<string> {
+  const startedAt = Date.now();
   const res = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contents: [{ parts }] }),
   });
+
+  log.debug("judge.gemini.response", {
+    status: res.status,
+    ok: res.ok,
+    latencyMs: Date.now() - startedAt,
+  });
+
   if (!res.ok) {
     const err = await res.text();
+    log.error("judge.gemini.failed", {
+      status: res.status,
+      bodyPreviewLength: err.slice(0, 200).length,
+    });
     throw new Error(`Gemini error ${res.status}: ${err.slice(0, 200)}`);
   }
   const data = await res.json();
@@ -59,12 +72,22 @@ async function callGemini(parts: object[]): Promise<string> {
 
 function parseJSON<T>(raw: string): T {
   const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("No JSON in Gemini response");
+  if (!match) {
+    log.error("judge.parse.no_json", {
+      rawLength: raw.length,
+    });
+    throw new Error("No JSON in Gemini response");
+  }
   return JSON.parse(match[0]) as T;
 }
 
 export async function judgeText(content: string): Promise<JudgeResult> {
+  const startedAt = Date.now();
   const truncated = content.slice(0, 5000);
+  log.debug("judge.start", {
+    inputLength: truncated.length,
+  });
+
   const raw = await callGemini([
     { text: JUDGE_PROMPT },
     { text: `Content to judge:\n\n${truncated}` },
@@ -84,6 +107,11 @@ export async function judgeText(content: string): Promise<JudgeResult> {
   else if (score <= 60) verdict = "Decent Slop 🗑️🗑️";
   else if (score <= 80) verdict = "Premium Slop 🗑️🗑️🗑️";
   else verdict = "Legendary Slop 🗑️👑";
+
+  log.info("judge.done", {
+    score,
+    latencyMs: Date.now() - startedAt,
+  });
 
   return {
     slop_score: score,

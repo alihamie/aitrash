@@ -27,7 +27,7 @@ export default async function FeedPage() {
     <div>
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-black tracking-tighter mb-2">
-          The Slop <span className="text-purple-400">Feed</span> 🗑️
+          The Slop <span className="text-yellow-400">Feed</span> 🗑️
         </h1>
         <p className="text-zinc-400 text-sm">
           AI-generated garbage, celebrated by the community. The sloppier, the
@@ -46,7 +46,7 @@ export default async function FeedPage() {
           </p>
           <Link
             href="/submit"
-            className="inline-block bg-purple-600 text-white font-bold px-8 py-4 rounded-xl hover:bg-purple-500 transition-colors text-lg"
+            className="inline-block bg-yellow-400 text-zinc-950 font-bold px-8 py-4 rounded-xl hover:bg-yellow-300 transition-colors text-lg"
           >
             Dump the first slop 🗑️
           </Link>

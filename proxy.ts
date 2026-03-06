@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { createRequestId, log } from "@/lib/logger";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? createRequestId("proxy");
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -30,7 +32,31 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refresh the auth session — important for server components
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    const payload = {
+      requestId,
+      path: request.nextUrl.pathname,
+      code: error.code,
+      message: error.message,
+    };
+
+    if (error.message === "Auth session missing!") {
+      log.debug("proxy.session_refresh_missing", payload);
+    } else {
+      log.warn("proxy.session_refresh_failed", payload);
+    }
+  } else {
+    log.debug("proxy.session_refresh_ok", {
+      requestId,
+      path: request.nextUrl.pathname,
+      hasUser: !!user,
+    });
+  }
 
   return supabaseResponse;
 }

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { log } from "./logger";
 
 /**
  * Server client with auth context from cookies.
@@ -22,7 +23,11 @@ export async function createServerSupabase() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch {
+          } catch (error) {
+            log.warn("supabase.server.cookies.set_failed", {
+              cookieCount: cookiesToSet.length,
+              message: error instanceof Error ? error.message : "Unknown",
+            });
             // Called from Server Component — ignore
           }
         },

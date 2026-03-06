@@ -2,16 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
+import { log } from "@/lib/logger";
 import type { Post, FeedSort, VoteType } from "@/lib/types";
+import { useAuth } from "./AuthProvider";
 import { PostCard } from "./PostCard";
 import { PostModal } from "./PostModal";
+import { SignInModal } from "./SignInModal";
 
 const PAGE_SIZE = 25;
 
 const TABS: { key: FeedSort; label: string; icon: string }[] = [
-  { key: "hot", label: "Hot Slop", icon: "🔥" },
-  { key: "fresh", label: "Fresh Slop", icon: "🆕" },
-  { key: "most_slopped", label: "Most Slopped", icon: "👑" },
+  { key: "hot", label: "Hot Garbage", icon: "🔥" },
+  { key: "fresh", label: "Fresh Filth", icon: "🆕" },
+  { key: "most_slopped", label: "Hall of Shame", icon: "👑" },
 ];
 
 interface FeedClientProps {
@@ -28,66 +31,72 @@ export default function FeedClient({
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialPosts.length >= PAGE_SIZE);
   const [selected, setSelected] = useState<Post | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const [userVotes, setUserVotes] = useState<Record<string, VoteType>>({});
+  const [showSignInModal, setShowSignInModal] = useState(false);
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   const supabase = createClient();
 
-  // Get current user and their votes
+  // Fetch user's votes for visible posts when auth state changes
   useEffect(() => {
-    const init = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-        // Fetch user's votes for visible posts
-        const postIds = initialPosts.map((p) => p.id);
-        if (postIds.length > 0) {
-          const { data: votes } = await supabase
-            .from("votes")
-            .select("post_id, vote_type")
-            .eq("user_id", user.id)
-            .in("post_id", postIds);
-          if (votes) {
-            const voteMap: Record<string, VoteType> = {};
-            votes.forEach((v) => {
-              voteMap[v.post_id] = v.vote_type as VoteType;
-            });
-            setUserVotes(voteMap);
-          }
-        }
+    let active = true;
+
+    const initVotes = async () => {
+      if (!userId) {
+        setUserVotes({});
+        return;
+      }
+
+      const postIds = initialPosts.map((p) => p.id);
+      if (postIds.length === 0) {
+        return;
+      }
+
+      const { data: votes, error } = await supabase
+        .from("votes")
+        .select("post_id, vote_type")
+        .eq("user_id", userId)
+        .in("post_id", postIds);
+
+      if (!active) return;
+
+      if (error) {
+        log.warn("feed.init_votes_failed", {
+          code: error.code,
+          message: error.message,
+          postCount: postIds.length,
+        });
+        return;
+      }
+
+      if (votes) {
+        const voteMap: Record<string, VoteType> = {};
+        votes.forEach((v: { post_id: string; vote_type: string }) => {
+          voteMap[v.post_id] = v.vote_type as VoteType;
+        });
+        setUserVotes(voteMap);
+        log.debug("feed.init_votes_done", {
+          voteCount: votes.length,
+        });
       }
     };
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    void initVotes();
+
+    return () => {
+      active = false;
+    };
+  }, [initialPosts, supabase, userId]);
 
   const fetchPosts = useCallback(
     async (feedSort: FeedSort, offset: number = 0) => {
-      if (feedSort === "hot") {
-        const { data } = await supabase.rpc("get_hot_posts", {
-          p_limit: PAGE_SIZE,
-          p_offset: offset,
-        });
-        return (data as Post[]) ?? [];
-      }
-
-      let query = supabase
-        .from("posts")
-        .select("*, profiles(username)")
-        .range(offset, offset + PAGE_SIZE - 1);
-
-      if (feedSort === "fresh") {
-        query = query.order("created_at", { ascending: false });
-      } else if (feedSort === "most_slopped") {
-        query = query.order("upvotes", { ascending: false }).order("created_at", { ascending: false });
-      }
-
-      const { data } = await query;
-      return (data as Post[]) ?? [];
+      const res = await fetch(`/api/posts?sort=${feedSort}&offset=${offset}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (json.posts as Post[]) ?? [];
     },
-    [supabase]
+    []
   );
 
   const fetchUserVotes = useCallback(
@@ -101,7 +110,7 @@ export default function FeedClient({
       if (votes) {
         setUserVotes((prev) => {
           const updated = { ...prev };
-          votes.forEach((v) => {
+          votes.forEach((v: { post_id: string; vote_type: string }) => {
             updated[v.post_id] = v.vote_type as VoteType;
           });
           return updated;
@@ -131,18 +140,26 @@ export default function FeedClient({
     setLoading(false);
   };
 
+  const handleDelete = async (id: string) => {
+    const res = await fetch(`/api/posts/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+      if (selected?.id === id) setSelected(null);
+    }
+  };
+
   const handleAuthRequired = () => {
-    // Trigger Google sign-in
-    supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+    log.info("feed.vote_requires_auth", {
+      path: window.location.pathname,
     });
+    setShowSignInModal(true);
   };
 
   return (
     <div>
+      {showSignInModal && (
+        <SignInModal onClose={() => setShowSignInModal(false)} />
+      )}
       {/* Sort tabs */}
       <div className="flex gap-1 mb-6 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
         {TABS.map((tab) => (
@@ -156,7 +173,7 @@ export default function FeedClient({
             }`}
           >
             <span>{tab.icon}</span>
-            <span className="hidden sm:inline">{tab.label}</span>
+            <span>{tab.label}</span>
           </button>
         ))}
       </div>
@@ -180,11 +197,11 @@ export default function FeedClient({
       ) : posts.length === 0 ? (
         <div className="text-center py-16">
           <div className="text-6xl mb-4">🗑️</div>
-          <h3 className="text-xl font-bold text-zinc-300 mb-2">
-            No slop here yet
+          <h3 className="text-xl font-black text-zinc-300 mb-2 uppercase tracking-wide">
+            Nobody Has Dumped Anything Yet
           </h3>
           <p className="text-zinc-500">
-            Be the first to dump some AI-generated garbage!
+            Be the first disgrace. We believe in you.
           </p>
         </div>
       ) : (
@@ -197,6 +214,8 @@ export default function FeedClient({
               isAuthenticated={!!userId}
               onAuthRequired={handleAuthRequired}
               onClick={() => setSelected(post)}
+              currentUserId={userId}
+              onDelete={handleDelete}
             />
           ))}
         </div>
@@ -223,6 +242,8 @@ export default function FeedClient({
           isAuthenticated={!!userId}
           onAuthRequired={handleAuthRequired}
           onClose={() => setSelected(null)}
+          currentUserId={userId}
+          onDelete={handleDelete}
         />
       )}
     </div>

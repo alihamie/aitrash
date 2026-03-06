@@ -36,14 +36,16 @@ export function SlopMeter({
     lg: "text-4xl",
   };
 
+  const isLegendary = score > 80;
+
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-1">
-        <span className={`font-bold ${scoreSizes[size]} text-white`}>
+        <span className={`font-black ${scoreSizes[size]} text-white`}>
           {score}%
         </span>
         {showLabel && (
-          <span className={`${textSizes[size]} font-medium text-zinc-300`}>
+          <span className={`${textSizes[size]} font-black uppercase tracking-wide text-zinc-300`}>
             {tier}
           </span>
         )}
@@ -52,7 +54,7 @@ export function SlopMeter({
         className={`w-full ${heights[size]} bg-zinc-800 rounded-full overflow-hidden`}
       >
         <div
-          className={`${heights[size]} bg-gradient-to-r ${gradient} rounded-full ${animate ? "transition-all duration-1000 ease-out" : ""}`}
+          className={`${heights[size]} bg-gradient-to-r ${gradient} rounded-full ${animate ? "transition-all duration-1000 ease-out" : ""} ${isLegendary ? "animate-pulse" : ""}`}
           style={{ width: `${score}%` }}
         />
       </div>

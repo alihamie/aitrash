@@ -3,11 +3,11 @@
 // ============================================================
 
 export type SlopTier =
-  | "Barely Slop 😬"
-  | "Mild Slop 🗑️"
-  | "Decent Slop 🗑️🗑️"
-  | "Premium Slop 🗑️🗑️🗑️"
-  | "Legendary Slop 🗑️👑";
+  | "BARELY SLOP 😬"
+  | "CERTIFIED SLOP 🗑️"
+  | "PREMIUM GARBAGE 🗑️🗑️"
+  | "WEAPONS-GRADE SLOP 🗑️🗑️🗑️"
+  | "LEGENDARY FILTH 🗑️👑";
 
 export type VoteType = "slop" | "clean";
 
@@ -22,6 +22,7 @@ export interface Profile {
 export interface Post {
   id: string;
   user_id: string;
+  title?: string | null;
   content: string;
   slop_score: number;
   verdict: string;
@@ -53,11 +54,11 @@ export interface JudgeResult {
 }
 
 export function getSlopTier(score: number): SlopTier {
-  if (score <= 20) return "Barely Slop 😬";
-  if (score <= 40) return "Mild Slop 🗑️";
-  if (score <= 60) return "Decent Slop 🗑️🗑️";
-  if (score <= 80) return "Premium Slop 🗑️🗑️🗑️";
-  return "Legendary Slop 🗑️👑";
+  if (score <= 20) return "BARELY SLOP 😬";
+  if (score <= 40) return "CERTIFIED SLOP 🗑️";
+  if (score <= 60) return "PREMIUM GARBAGE 🗑️🗑️";
+  if (score <= 80) return "WEAPONS-GRADE SLOP 🗑️🗑️🗑️";
+  return "LEGENDARY FILTH 🗑️👑";
 }
 
 export function getSlopColor(score: number): string {
@@ -65,7 +66,7 @@ export function getSlopColor(score: number): string {
   if (score <= 40) return "text-green-400";
   if (score <= 60) return "text-yellow-400";
   if (score <= 80) return "text-orange-400";
-  return "text-purple-400";
+  return "text-yellow-400";
 }
 
 export function getSlopBgColor(score: number): string {
@@ -73,7 +74,7 @@ export function getSlopBgColor(score: number): string {
   if (score <= 40) return "bg-green-400";
   if (score <= 60) return "bg-yellow-400";
   if (score <= 80) return "bg-orange-400";
-  return "bg-purple-400";
+  return "bg-yellow-400";
 }
 
 export function getSlopGradient(score: number): string {
@@ -81,7 +82,7 @@ export function getSlopGradient(score: number): string {
   if (score <= 40) return "from-green-600 to-green-400";
   if (score <= 60) return "from-yellow-600 to-yellow-400";
   if (score <= 80) return "from-orange-600 to-orange-400";
-  return "from-purple-600 to-fuchsia-400";
+  return "from-yellow-500 to-amber-400";
 }
 
 export function timeAgo(date: string): string {

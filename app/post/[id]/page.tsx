@@ -26,7 +26,9 @@ export async function generateMetadata({
   if (!post) return { title: "Post not found — AI Trash" };
 
   const tier = getSlopTier(post.slop_score);
-  const title = post.content
+  const title = post.title
+    ? `${post.title} — ${post.slop_score}% Slop`
+    : post.content
     ? `${post.content.slice(0, 60)}${post.content.length > 60 ? "..." : ""} — ${post.slop_score}% Slop`
     : `AI Trash — ${tier}`;
 
@@ -71,7 +73,7 @@ export default async function PostPage({
         {/* Header */}
         <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-purple-600/50 flex items-center justify-center text-sm font-bold text-purple-300">
+            <div className="w-8 h-8 rounded-full bg-yellow-400/20 flex items-center justify-center text-sm font-bold text-yellow-300">
               {username[0].toUpperCase()}
             </div>
             <div>
@@ -90,6 +92,9 @@ export default async function PostPage({
 
         {/* Content */}
         <div className="p-5">
+          {post.title && (
+            <h1 className="font-black text-xl text-white mb-4">{post.title}</h1>
+          )}
           <p className="text-zinc-200 text-sm leading-relaxed whitespace-pre-wrap mb-6">
             {post.content}
           </p>
@@ -116,7 +121,7 @@ export default async function PostPage({
                           ? "from-yellow-600 to-yellow-400"
                           : post.slop_score <= 80
                             ? "from-orange-600 to-orange-400"
-                            : "from-purple-600 to-fuchsia-400"
+                            : "from-yellow-500 to-amber-400"
                   } rounded-full`}
                   style={{ width: `${post.slop_score}%` }}
                 />
@@ -125,8 +130,8 @@ export default async function PostPage({
           </div>
 
           {/* AI Roast */}
-          <div className="bg-purple-950/30 border border-purple-800/50 rounded-xl p-4 mb-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-purple-400 mb-1">
+          <div className="bg-zinc-800/60 border border-yellow-400/20 rounded-xl p-4 mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-yellow-400 mb-1">
               🤖 AI Slop Judge
             </p>
             <p className={`${slopColor} font-semibold italic text-lg`}>

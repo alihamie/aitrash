@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase";
+import { log } from "@/lib/logger";
 import type { Profile } from "@/lib/types";
 
 interface UsernameModalProps {
@@ -13,8 +13,6 @@ export function UsernameModal({ userId, onComplete }: UsernameModalProps) {
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const supabase = createClient();
 
   const validateUsername = (name: string): string | null => {
     if (name.length < 3) return "Username must be at least 3 characters";
@@ -36,41 +34,37 @@ export function UsernameModal({ userId, onComplete }: UsernameModalProps) {
 
     setLoading(true);
     setError(null);
+    log.info("username.submit.start", { userId, usernameLength: trimmed.length });
 
-    // Check uniqueness
-    const { data: existing } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("username", trimmed)
-      .maybeSingle();
+    try {
+      // Use the server-side API route — avoids the browser Supabase client's
+      // Web Lock contention (which can cause this fetch to hang indefinitely
+      // when the auth token refresh holds the lock).
+      const res = await fetch("/api/create-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: trimmed }),
+      });
 
-    if (existing) {
-      setError("That username is already taken. Try another!");
+      const data = await res.json();
+
+      if (!res.ok) {
+        log.warn("username.submit.api_error", { userId, status: res.status, error: data.error });
+        setError(data.error ?? "Something went wrong. Try again.");
+        return;
+      }
+
+      log.info("username.submit.success", { userId });
+      onComplete(data.profile as Profile);
+    } catch (err) {
+      log.error("username.submit.fetch_failed", {
+        userId,
+        message: err instanceof Error ? err.message : "Unknown",
+      });
+      setError("Something went wrong. Try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Create profile
-    const { data, error: insertError } = await supabase
-      .from("profiles")
-      .insert({
-        id: userId,
-        username: trimmed,
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      setError(
-        insertError.message.includes("duplicate")
-          ? "That username is already taken. Try another!"
-          : "Something went wrong. Try again."
-      );
-      setLoading(false);
-      return;
-    }
-
-    onComplete(data as Profile);
   };
 
   return (
@@ -78,11 +72,11 @@ export function UsernameModal({ userId, onComplete }: UsernameModalProps) {
       <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
         <div className="text-center mb-6">
           <div className="text-5xl mb-3">🗑️</div>
-          <h2 className="text-2xl font-bold text-white mb-2">
-            Welcome to AI Trash!
+          <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">
+            Welcome to the Dumpster
           </h2>
           <p className="text-zinc-400 text-sm">
-            Pick an anonymous username to start dumping slop.
+            Pick a username. Make it gross. Start dumping slop.
           </p>
         </div>
 
@@ -103,7 +97,7 @@ export function UsernameModal({ userId, onComplete }: UsernameModalProps) {
                 setError(null);
               }}
               placeholder="SlopLord420"
-              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-600 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-600 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
               autoFocus
               maxLength={20}
             />
@@ -121,7 +115,7 @@ export function UsernameModal({ userId, onComplete }: UsernameModalProps) {
           <button
             type="submit"
             disabled={loading || !username.trim()}
-            className="w-full py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-bold rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+            className="w-full py-3 bg-yellow-400 hover:bg-yellow-300 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 font-bold rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             {loading ? "Creating..." : "Let's Go 🗑️"}
           </button>

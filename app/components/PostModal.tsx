@@ -13,6 +13,8 @@ interface PostModalProps {
   isAuthenticated: boolean;
   onAuthRequired: () => void;
   onClose: () => void;
+  currentUserId?: string | null;
+  onDelete?: (id: string) => void;
 }
 
 export function PostModal({
@@ -21,6 +23,8 @@ export function PostModal({
   isAuthenticated,
   onAuthRequired,
   onClose,
+  currentUserId,
+  onDelete,
 }: PostModalProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -53,7 +57,7 @@ export function PostModal({
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-zinc-800">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-purple-600/50 flex items-center justify-center text-sm font-bold text-purple-300">
+            <div className="w-8 h-8 rounded-full bg-yellow-400/20 flex items-center justify-center text-sm font-bold text-yellow-300">
               {username[0].toUpperCase()}
             </div>
             <div>
@@ -75,6 +79,9 @@ export function PostModal({
 
         {/* Content */}
         <div className="p-5">
+          {post.title && (
+            <h2 className="font-black text-base text-white mb-3">{post.title}</h2>
+          )}
           <p className="text-zinc-200 text-sm leading-relaxed whitespace-pre-wrap mb-6">
             {post.content}
           </p>
@@ -85,8 +92,8 @@ export function PostModal({
           </div>
 
           {/* AI Roast */}
-          <div className="bg-purple-950/30 border border-purple-800/50 rounded-xl p-4 mb-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-purple-400 mb-1">
+          <div className="bg-zinc-800/60 border border-yellow-400/20 rounded-xl p-4 mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-yellow-400 mb-1">
               🤖 AI Slop Judge
             </p>
             <p className={`${slopColor} font-semibold italic`}>
@@ -105,6 +112,19 @@ export function PostModal({
               onAuthRequired={onAuthRequired}
             />
             <div className="flex items-center gap-2 ml-auto">
+              {currentUserId === post.user_id && onDelete && (
+                <button
+                  onClick={() => {
+                    if (window.confirm("Delete this post?")) {
+                      onDelete(post.id);
+                      onClose();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-950/50 hover:bg-red-900/60 text-red-400 hover:text-red-300 transition-all border border-red-800/50 cursor-pointer"
+                >
+                  🗑️ Delete
+                </button>
+              )}
               <ShareButton id={post.id} />
               <a
                 href={`/post/${post.id}`}
