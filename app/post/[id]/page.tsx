@@ -33,15 +33,23 @@ export async function generateMetadata({
     : `AI Trash — ${tier}`;
 
   return {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
     title: `${title} — AI Trash`,
     description: post.roast,
     openGraph: {
       title,
       description: post.roast,
       type: "article",
+      images: [
+        {
+          url: `/post/${id}/opengraph-image`,
+          width: 1200,
+          height: 630,
+        },
+      ],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description: post.roast,
     },
